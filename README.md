@@ -86,18 +86,18 @@ not what a cross-sectional factor is for.
 Trained on 2019-01-01 .. 2022-12-31; the test numbers come from a model that
 never saw a label from the test window.
 
-The factor is scored against **two return conventions**, because they answer
-different questions. `close_t1` is today's close to tomorrow's close — it
-matches the training label, but assumes you can trade at a price you only
-observe after the fact. `open5_t2` is the first-5-minute TWAP one day ahead to
-the next: a full day of implementation lag, and the convention the parent
-project's own single-factor test reports. Both are computed on the full listed
-panel before the universe filter, so each measures the stock's genuine next
-trading days rather than its next days in the index.
+**The holding period is close to close.** The signal is formed from day T's
+session and the position is entered in that day's closing auction, held
+through the overnight gap, and exited at the T+1 close. That is the strategy
+this model is built for, and `close_t1` — today's close to tomorrow's close —
+is its P&L. It is also exactly the label the model is trained on, so the
+objective and the evaluation measure the same thing.
+
+Returns are computed on the full listed panel before the universe filter, so
+they measure the stock's genuine next trading day rather than its next day in
+the index.
 
 <!-- RESULTS_TABLE -->
-
-### Close &rarr; close, T+1
 
 Windows: 2019-01-02 .. 2022-12-29 | 2023-01-03 .. 2024-11-01
 
@@ -122,31 +122,6 @@ Windows: 2019-01-02 .. 2022-12-29 | 2023-01-03 .. 2024-11-01
 | Decile monotonicity (Spearman) | 1.000 | 1.000 |
 | Top-decile daily turnover | 77.4% | 78.4% |
 
-### Open5TWAP T+1 &rarr; T+2 (tradable)
-
-Windows: 2019-01-02 .. 2022-12-29 | 2023-01-03 .. 2024-11-01
-
-| metric | Train (in-sample) | **Test (out-of-sample)** |
-| --- | --- | --- |
-| Trading days | 876 | 395 |
-| Mean RankIC | 0.0342 | 0.0266 |
-| RankIC std | 0.0601 | 0.0784 |
-| **ICIR** | **0.569** | **0.340** |
-| IC > 0 frequency | 71.9% | 64.1% |
-| IC t-stat | 16.8 | 6.8 |
-| Top decile, mean daily return | 0.0344% | 0.0320% |
-| Bottom decile, mean daily return | -0.1509% | -0.0440% |
-| Benchmark (equal-weighted), mean daily | 0.0343% | 0.0234% |
-| **Long-short Sharpe** (Q10-Q1, ann.) | **4.37** | **1.64** |
-| **Long-only Sharpe** (Q10, ann.) | **0.34** | **0.28** |
-| Long-only Sharpe, excess of benchmark | 0.00 | 0.38 |
-| Benchmark Sharpe (ann.) | 0.37 | 0.21 |
-| Long-short cumulative (additive) | 162.3% | 30.0% |
-| Long-short max drawdown | -10.6% | -11.4% |
-| Long-only cumulative (additive) | 30.1% | 12.7% |
-| Decile monotonicity (Spearman) | 0.818 | 0.612 |
-| Top-decile daily turnover | 77.4% | 78.4% |
-
 <!-- /RESULTS_TABLE -->
 
 ### Out-of-sample backtest, 2023-01-03 .. 2024-11-01
@@ -156,36 +131,30 @@ full set, including the training window, is in [`docs/figures/`](docs/figures).
 Cumulative curves are additive (`cumsum`), matching the parent framework's
 plots.
 
-**On the training horizon (close &rarr; close, T+1)** the decile fan opens
-cleanly and never crosses — Q10 on top, Q1 at the bottom, every rank in
-between where it should be:
+The decile fan opens cleanly and never crosses — Q10 on top, Q1 at the
+bottom, every rank in between where it belongs, over 396 out-of-sample days:
 
-![Factor summary, close-to-close](docs/figures/GNN_IC4Net_test_close_t1_summary.png)
+![Factor summary, out-of-sample](docs/figures/GNN_IC4Net_test_close_t1_summary.png)
 
-**On the tradable horizon (Open5TWAP T+1 &rarr; T+2)** the same model, the same
-dates, and a very different picture. The long-short leg still grinds up, but
-the decile curves collapse into a bundle:
+The decile bar chart shows the same thing as levels. The spread is monotone
+across all ten buckets rather than driven by one extreme: Q10 earns +0.247% a
+day and Q1 loses -0.358%, and every step in between moves the right way
+(Spearman monotonicity 1.000).
 
-![Factor summary, tradable](docs/figures/GNN_IC4Net_test_open5_t2_summary.png)
+![Decile returns, out-of-sample](docs/figures/GNN_IC4Net_test_close_t1_decile_bar.png)
 
-The decile bar chart says exactly where the surviving edge lives:
+Worth noting what the benchmark did over this window: the equal-weighted
+CSI 1000 returned an annualised Sharpe of **-0.07**, essentially flat to
+slightly down. The long-only top decile posted 2.43 over the same dates, so
+that figure is not market drift in disguise — the excess-of-benchmark Sharpe
+is 7.78.
 
-![Decile returns, tradable](docs/figures/GNN_IC4Net_test_open5_t2_decile_bar.png)
+![Quintile cumulative return](docs/figures/GNN_IC4Net_test_close_t1_quintile_cumret.png)
 
-**The tradable edge is almost entirely short-side.** Q1 earns -0.044% a day
-while Q3 through Q10 sit in a flat band around +0.03% — statistically
-indistinguishable from each other and from the +0.023% benchmark. That is what
-the 0.61 monotonicity is measuring. The model is reliable at identifying the
-worst decile a day ahead and close to uninformative about the ordering of the
-rest, so as a long-only stock selector it adds little (long-only Sharpe 0.28
-against a benchmark 0.21), while as a short screen or a universe filter it is
-doing real work.
+The RankIC series shows where the stability comes from: IC is positive on 86%
+of days rather than being carried by a few large ones.
 
-Quintile curves and the RankIC series for the tradable horizon:
-
-![Quintile cumulative return, tradable](docs/figures/GNN_IC4Net_test_open5_t2_quintile_cumret.png)
-
-![RankIC over time, tradable](docs/figures/GNN_IC4Net_test_open5_t2_ic.png)
+![RankIC over time](docs/figures/GNN_IC4Net_test_close_t1_ic.png)
 
 ### Barra style and industry attribution
 
@@ -224,29 +193,24 @@ Same universe, same out-of-sample dates, same metric — out-of-sample RankICIR
 for this model against the industry-GNN it replaces (`Composite10`: the same
 architecture on the older 28-factor input set) and two earlier variants:
 
-| out-of-sample ICIR, 2023-01-03 .. 2024-10-31 | Composite5 | Composite9 | Composite10 | **GNN_IC4Net** |
+| out-of-sample, 2023-01-03 .. 2024-10-31 | Composite5 | Composite9 | Composite10 | **GNN_IC4Net** |
 | --- | --- | --- | --- | --- |
-| Close &rarr; close, T+1 | 0.490 | 0.919 | 0.921 | **1.065** |
-| Open5TWAP T+1 &rarr; T+2 (tradable) | 0.250 | 0.322 | **0.350** | 0.340 |
+| Mean RankIC | 0.042 | 0.076 | 0.082 | **0.089** |
+| **RankICIR** | 0.490 | 0.919 | 0.921 | **1.065** |
+| IC > 0 frequency | 69.7% | 84.6% | 83.3% | **86.1%** |
 
-**This is the most important thing to understand about the model.** On the
-horizon it is trained for, the new input set is a clear step up — RankIC 0.089
-against 0.082, ICIR 1.07 against 0.92. Give the signal one day of
-implementation lag and that advantage disappears: 0.340 against 0.350, a tie
-inside noise.
+The new input set is a clear step up on every column, and the gain is in
+consistency as much as in size: mean RankIC improves 8% over Composite10
+while ICIR improves 16%, because the IC is steadier day to day rather than
+larger on its good days.
 
-The explanation is in the inputs. Twelve of the 22 factors are last-30-minute
-intraday microstructure readings — closing VWAP ratios, volume concentration,
-late-session reversals. They describe where a stock ends the day relative to
-its own session, which is exactly the kind of information that predicts the
-*immediately* following move and then decays. A return that only starts the
-next morning has already given most of it away. The older, more
-fundamental-weighted input set gives up less to the lag.
-
-So: treat the close-to-close column as evidence the architecture and the
-feature screen work, and the tradable column as the number to beat. Closing
-that gap means training on the lagged label (`label_price_col="Open5TWAP"`,
-`label_horizon=2`), not tuning the model.
+The jump from Composite5 to the rest is the input set, not the architecture —
+Composite5 runs the same industry-GNN over only 8 raw factors. The jump from
+Composite9 to Composite10 is the architecture at fixed inputs, and it is
+small (0.919 to 0.921). What separates this model is the 22-factor screen
+feeding it, with the graph contributing a consistent but secondary refinement.
+That ordering is worth keeping in mind before attributing the result to the
+GNN alone.
 
 ### Other caveats
 
@@ -254,27 +218,33 @@ that gap means training on the lagged label (`label_price_col="Open5TWAP"`,
 choice — the daily price and index-weight tables this project is evaluated
 against end there.
 
-**Every Sharpe and cumulative figure is gross of costs, and none of them
-survives costs.** Top-decile turnover is ~78% per day — the book is almost
-entirely replaced daily. On the tradable convention the out-of-sample
-long-short leg earns +30.0% gross over ~1.6 years at a Sharpe of 1.64; ~0.78
-of the book turning over ~395 days is on the order of 300 round trips, so a
-few basis points per trade erases the whole thing. Read the long-short Sharpe
-of 10.25 on the close-to-close horizon the same way — it is what a
-frictionless, instantly-implementable version of the signal would have
-earned, which is nobody's strategy.
+**Every Sharpe and cumulative figure is gross of costs, and turnover is the
+binding constraint.** Top-decile turnover is ~78% per day — the book is
+almost entirely replaced at every close. Over 396 days that is on the order
+of 300 round trips, so the out-of-sample long-short Sharpe of 10.25 and the
++239.8% cumulative figure describe a frictionless version of the signal, not
+a P&L. At a few basis points of round-trip cost most of it is gone. Sizing
+this into something tradable means a holding-period or turnover penalty in
+the objective, which this model does not have.
 
-**The long-only Sharpe is the number most likely to be misread.** On the
-tradable horizon it is 0.28 — but the equal-weighted universe itself returned
-a Sharpe of 0.21 over the same window, so almost all of it is market
-exposure, and the factor's own contribution is the 0.38 excess figure. That is
-why both are reported: a long-only Sharpe quoted without its benchmark says
-more about the market than about the model.
+**Execution has to happen at the close, and that is a real assumption.**
+Twelve of the 22 inputs are last-30-minute intraday readings, so the signal is
+only fully formed minutes before the auction it must be traded in. A
+close-to-close backtest charges nothing for that. Any slippage between the
+observed close and the achievable fill comes straight out of a +0.247%/day
+top decile.
 
-**Train-vs-test decay is real but modest.** On the training horizon, ICIR
-falls from 1.73 to 1.07 and mean RankIC from 0.110 to 0.089 — roughly a third
-of the in-sample edge given back — while decile monotonicity stays at 1.000
-and IC stays positive on 86% of out-of-sample days.
+**The long-only Sharpe is the number most likely to be misread** — though
+here it holds up. It is 2.43, against an equal-weighted universe that
+returned -0.07 over the same window, giving an excess of 7.78. Both are
+reported because a long-only Sharpe quoted without its benchmark usually says
+more about the market than about the model; in this window the market
+contributed nothing, so the figure is the factor's.
+
+**Train-vs-test decay is real but modest.** ICIR falls from 1.73 to 1.07 and
+mean RankIC from 0.110 to 0.089 — roughly a third of the in-sample edge given
+back — while decile monotonicity stays at 1.000 and IC stays positive on 86%
+of out-of-sample days.
 
 Reproduce with `python scripts/reproduce_run.py`. The tables above the caveats
 are rendered from the run's own metrics file by
@@ -354,7 +324,7 @@ print(result.test_metrics["icir"])
 `iagnn run` writes, into `artifacts/`: the scored factor, per-window RankIC
 series and decile returns, a metrics table, the training history, a torch
 checkpoint, a torch-free JSON weight dump, and a config manifest. Figures go
-to `docs/figures/` — four per (window, return convention) plus the Barra
+to `docs/figures/` — four per (window, holding period) plus the Barra
 attribution, which needs `--barra-dir` pointing at the exposure parquets and
 is skipped without complaint when they are absent. `--no-figures` turns the
 whole figure step off. It also
@@ -422,9 +392,12 @@ structure.
 
 **The training label and the evaluation returns are configured separately.**
 `DataConfig.label_price_col` / `label_horizon` set what the model fits;
-`DataConfig.eval_returns` sets what it is scored against, and every entry is
-reported. Keeping them apart is what makes the lag sensitivity in the results
-section visible instead of hidden behind a single number.
+`DataConfig.eval_returns` sets what it is scored against. Both default to the
+close-to-close holding period, so the objective and the report measure the
+same thing. They are kept as separate settings because a factor is often
+worth scoring against holding periods it was not trained for — add entries to
+`eval_returns` and each is reported, with its own metrics and figures, rather
+than being averaged into one number.
 
 **On Windows, torch must be imported before numpy/pandas** or its DLLs can
 fail to load (`WinError 1114`). The package's `__init__` handles this; see

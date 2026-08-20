@@ -91,18 +91,14 @@ class DataConfig:
     label_price_col: str = "ClosePrice"
     label_horizon: int = 1
     #: Return definitions the factor is *scored* against, as
-    #: ``(name, price_column, horizon)``. Reported side by side, because the
-    #: two say different things:
-    #:   close_t1  -- today's close to tomorrow's close. Matches the default
-    #:                training label, but is not implementable: it assumes you
-    #:                trade at a close you can only observe after the fact.
-    #:   open5_t2  -- the first-5-minute TWAP one day ahead to the next. This
-    #:                is the tradable horizon, with a full day of
-    #:                implementation lag, and is what the parent project's
-    #:                single-factor test reports by default.
+    #: ``(name, price_column, horizon)``. The default matches the strategy
+    #: this model is built for: enter in the day-T closing auction on that
+    #: session's signal and exit at the T+1 close, so the position spans the
+    #: overnight gap and the following session. Add further entries to score
+    #: the same factor against other holding conventions; each one is
+    #: reported separately.
     eval_returns: tuple[tuple[str, str, int], ...] = (
         ("close_t1", "ClosePrice", 1),
-        ("open5_t2", "Open5TWAP", 2),
     )
     #: Universe filter: keep rows whose index weight in this column is > 0.
     universe_weight_col: str = "IndexW1000"

@@ -57,8 +57,9 @@ def render(metrics: pd.DataFrame) -> str:
         windows = [w for w in ("train", "test") if w in block.index]
         headers = {"train": "Train (in-sample)", "test": "**Test (out-of-sample)**"}
 
-        lines.append(f"### {RETURN_LABELS.get(ret, ret)}")
-        lines.append("")
+        if len(returns) > 1:  # a single convention needs no heading to disambiguate
+            lines.append(f"### {RETURN_LABELS.get(ret, ret)}")
+            lines.append("")
         spans = " | ".join(
             f"{block.loc[w, 'start']} .. {block.loc[w, 'end']}" for w in windows
         )
