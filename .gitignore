@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Run outputs: model weights, scored factors, metrics. Regenerate with `iagnn run`.
+artifacts/*
+!artifacts/.gitkeep
+
+# Data is not distributed with the repo (see README: Data contract).
+*.parquet
+*.pt
+*.ipynb_checkpoints/
+
+.pytest_cache/
+.DS_Store
+.idea/
+.vscode/

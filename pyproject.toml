@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iagnn"
+version = "1.0.0"
+description = "Industry-aware residual GraphSAGE factor model for CSI1000 stock picking"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Kai Liu", email = "kl2298@cornell.edu" }]
+keywords = ["quantitative-finance", "graph-neural-network", "alpha-factor", "csi1000"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyarrow>=12.0",
+    "tqdm>=4.65",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+iagnn = "iagnn.cli:main"
+
+[project.urls]
+Repository = "https://github.com/kailiu0712/Industry-aware-GNN-for-CSI1000-stock-picking"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
