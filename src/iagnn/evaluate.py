@@ -24,11 +24,21 @@ show, and mixing the two conventions is the easiest way to produce two
   added anything.
 * **turnover** — fraction of the long bucket replaced day over day, the
   first-order check on whether the spread survives costs.
+
+Every portfolio statistic is reported twice: gross, and net of China
+A-share transaction costs (see `costs.py`), keyed with a `_net` suffix. For a
+factor that replaces most of its book daily the gap between the two is not a
+footnote, it is the result.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:  # imported lazily at call time to keep this module light
+    from .costs import TransactionCosts
 
 TRADING_DAYS_PER_YEAR = 252
 IC_ROLLING_WINDOW = 20
@@ -176,6 +186,49 @@ def long_short_summary(
     return out
 
 
+def net_summary(
+    net_quantiles: pd.DataFrame,
+    net_ls: pd.Series,
+    benchmark: pd.Series | None = None,
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
+) -> dict[str, float]:
+    """The same portfolio statistics, after transaction costs.
+
+    Keyed with a `_net` suffix so gross and net sit side by side in one
+    metrics row: the gap between them *is* the finding for a factor that
+    turns over most of its book daily.
+    """
+    if net_quantiles.empty:
+        return {}
+    top = net_quantiles.columns[-1]
+    long_only = net_quantiles[top].dropna()
+    spread = net_ls.dropna()
+
+    out = {
+        "ls_daily_mean_net": float(spread.mean()),
+        "ls_sharpe_net": _sharpe(spread, periods_per_year),
+        "ls_cumulative_return_net": float(spread.sum()),
+        "ls_max_drawdown_net": _max_drawdown_additive(spread),
+        "long_only_daily_mean_net": float(long_only.mean()),
+        "long_only_sharpe_net": _sharpe(long_only, periods_per_year),
+        "long_only_cumulative_return_net": float(long_only.sum()),
+        "top_decile_mean_net": float(net_quantiles[top].mean()),
+        "bottom_decile_mean_net": float(net_quantiles[net_quantiles.columns[0]].mean()),
+        "monotonicity_net": float(pd.Series(net_quantiles.mean().to_numpy()).rank().corr(
+            pd.Series(np.arange(net_quantiles.shape[1]) + 1.0))),
+    }
+
+    if benchmark is not None and not benchmark.empty:
+        bm = benchmark.reindex(long_only.index).dropna()
+        excess = (long_only - bm).dropna()
+        out.update({
+            "long_only_excess_daily_mean_net": float(excess.mean()),
+            "long_only_excess_sharpe_net": _sharpe(excess, periods_per_year),
+            "long_only_excess_cumulative_return_net": float(excess.sum()),
+        })
+    return out
+
+
 def turnover(
     df: pd.DataFrame,
     factor_col: str,
@@ -206,6 +259,7 @@ def evaluate(
     factor_col: str,
     n_quantiles: int = 10,
     return_col: str = "next_return",
+    costs: "TransactionCosts | None" = None,
 ) -> dict[str, object]:
     """Full report for one factor over one window.
 
@@ -214,10 +268,25 @@ def evaluate(
     the quintile returns the framework-style curves use, and the
     equal-weighted benchmark.
     """
+    from .costs import (
+        TransactionCosts,
+        average_daily_cost_bps,
+        net_bucket_returns,
+        net_long_short,
+        portfolio_turnover,
+    )
+
+    costs = costs if costs is not None else TransactionCosts()
+
     ic = daily_rank_ic(df, factor_col, return_col=return_col)
     quantiles = quantile_returns(df, factor_col, n_quantiles=n_quantiles, return_col=return_col)
-    quintiles = quantile_returns(df, factor_col, n_quantiles=5, return_col=return_col)
     benchmark = benchmark_returns(df, return_col=return_col)
+
+    bucket_turnover = portfolio_turnover(
+        df, factor_col, n_quantiles=n_quantiles, return_col=return_col
+    )
+    net_quantiles = net_bucket_returns(quantiles, bucket_turnover, costs)
+    net_ls = net_long_short(quantiles, bucket_turnover, costs)
 
     metrics = {
         "factor": factor_col,
@@ -226,14 +295,19 @@ def evaluate(
         "n_rows": int(len(df)),
         **ic_summary(ic),
         **long_short_summary(quantiles, benchmark),
+        **net_summary(net_quantiles, net_ls, benchmark),
         "top_decile_turnover": turnover(df, factor_col),
+        "top_decile_daily_cost_bps": average_daily_cost_bps(bucket_turnover, costs),
     }
     return {
         "metrics": metrics,
         "ic_series": ic,
         "quantile_returns": quantiles,
-        "quintile_returns": quintiles,
+        "net_quantile_returns": net_quantiles,
+        "net_long_short": net_ls,
+        "bucket_turnover": bucket_turnover,
         "benchmark": benchmark,
+        "costs": costs,
     }
 
 
@@ -257,12 +331,17 @@ def format_report(metrics: dict[str, object]) -> str:
         f"Top decile / day  : {fmt('top_decile_mean', '.5f')}",
         f"Bottom decile/day : {fmt('bottom_decile_mean', '.5f')}",
         f"Benchmark / day   : {fmt('benchmark_daily_mean', '.5f')}",
-        f"Long-short Sharpe : {fmt('ls_sharpe', '.2f')}",
-        f"Long-only Sharpe  : {fmt('long_only_sharpe', '.2f')}"
-        f"   (excess of benchmark: {fmt('long_only_excess_sharpe', '.2f')})",
+        f"Long-short Sharpe : {fmt('ls_sharpe', '.2f')} gross"
+        f"  ->  {fmt('ls_sharpe_net', '.2f')} net",
+        f"Long-only Sharpe  : {fmt('long_only_sharpe', '.2f')} gross"
+        f"  ->  {fmt('long_only_sharpe_net', '.2f')} net"
+        f"   (net excess of benchmark: {fmt('long_only_excess_sharpe_net', '.2f')})",
         f"Benchmark Sharpe  : {fmt('benchmark_sharpe', '.2f')}",
-        f"Long-short cum.   : {fmt('ls_cumulative_return', '.2%')} additive",
-        f"Long-short max DD : {fmt('ls_max_drawdown', '.2%')}",
-        f"Decile monotonic. : {fmt('monotonicity', '.3f')}",
-        f"Top-decile turnov.: {fmt('top_decile_turnover', '.2%')}",
+        f"Long-short cum.   : {fmt('ls_cumulative_return', '.2%')} gross"
+        f"  ->  {fmt('ls_cumulative_return_net', '.2%')} net (additive)",
+        f"Long-short max DD : {fmt('ls_max_drawdown_net', '.2%')} net",
+        f"Decile monotonic. : {fmt('monotonicity', '.3f')} gross"
+        f"  ->  {fmt('monotonicity_net', '.3f')} net",
+        f"Top-decile turnov.: {fmt('top_decile_turnover', '.2%')} per day",
+        f"Daily cost drag   : {fmt('top_decile_daily_cost_bps', '.1f')} bps",
     ])

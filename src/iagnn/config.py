@@ -11,6 +11,7 @@ import json
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
+from .costs import TransactionCosts
 from .features import IC4NET_FEATURE_COLS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -122,6 +123,9 @@ class PipelineConfig:
     #: Figures land here rather than in `output_dir`, because they are the
     #: one run output meant to be committed and shown in the README.
     figure_dir: Path = REPO_ROOT / "docs" / "figures"
+    #: China A-share transaction costs. Every portfolio statistic is reported
+    #: gross and net of these; see `costs.py` for the stack and its sources.
+    costs: TransactionCosts = field(default_factory=TransactionCosts)
 
     @property
     def n_features(self) -> int:

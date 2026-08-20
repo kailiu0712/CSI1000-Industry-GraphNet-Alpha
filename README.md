@@ -97,6 +97,26 @@ Returns are computed on the full listed panel before the universe filter, so
 they measure the stock's genuine next trading day rather than its next day in
 the index.
 
+**Every portfolio number is reported gross and net of transaction costs.** At
+~78% daily turnover the gross figures are not a result, they are an upper
+bound, so the net column is the one that matters. The cost stack is China
+A-share specific:
+
+| component | rate | side | note |
+| --- | --- | --- | --- |
+| Stamp duty (印花税) | 5 bps | sell only | 10 bps before 2023-08-28, when China halved it |
+| Brokerage commission (佣金) | 2.5 bps | both | institutional-ish; the ¥5 minimum is ignored |
+| Transfer fee (过户费) | 0.1 bps | both | Shanghai and Shenzhen since 2022 |
+| Slippage / market impact | 5 bps | both | assumption — the softest number here |
+| Short borrow (融券) | 800 bps | short leg | annualised financing, long-short only |
+
+A round trip is therefore ~20.2 bps, and the stamp-duty cut lands inside the
+test window, so the backtest pays 25.2 bps before 2023-08-28 and 20.2 bps
+after rather than one blended rate. Slippage is the assumption most worth
+arguing with: 5 bps per side is moderate for CSI 1000 names at modest size
+and will be too low for a large book. `--slippage-bps` overrides it;
+`--no-costs` reproduces the gross figures.
+
 <!-- RESULTS_TABLE -->
 
 Windows: 2019-01-02 .. 2022-12-29 | 2023-01-03 .. 2024-11-01
@@ -109,18 +129,25 @@ Windows: 2019-01-02 .. 2022-12-29 | 2023-01-03 .. 2024-11-01
 | **ICIR** | **1.734** | **1.066** |
 | IC > 0 frequency | 95.9% | 86.1% |
 | IC t-stat | 51.3 | 21.2 |
-| Top decile, mean daily return | 0.4620% | 0.2474% |
-| Bottom decile, mean daily return | -0.5188% | -0.3580% |
-| Benchmark (equal-weighted), mean daily | 0.0356% | -0.0073% |
-| **Long-short Sharpe** (Q10-Q1, ann.) | **21.30** | **10.25** |
-| **Long-only Sharpe** (Q10, ann.) | **4.68** | **2.43** |
-| Long-only Sharpe, excess of benchmark | 13.86 | 7.78 |
-| Benchmark Sharpe (ann.) | 0.39 | -0.07 |
-| Long-short cumulative (additive) | 859.2% | 239.8% |
-| Long-short max drawdown | -1.7% | -3.1% |
-| Long-only cumulative (additive) | 404.7% | 98.0% |
-| Decile monotonicity (Spearman) | 1.000 | 1.000 |
 | Top-decile daily turnover | 77.4% | 78.4% |
+| Daily cost drag | 19.5 bps | 17.2 bps |
+| Top decile, mean daily — gross | 0.4620% | 0.2474% |
+| Top decile, mean daily — **net** | **0.2670%** | **0.0752%** |
+| Bottom decile, mean daily — gross | -0.5188% | -0.3580% |
+| Bottom decile, mean daily — net | -0.6990% | -0.4989% |
+| Benchmark (equal-weighted), mean daily | 0.0356% | -0.0073% |
+| Long-short Sharpe — gross | 21.30 | 10.25 |
+| **Long-short Sharpe — net** | **12.47** | **4.41** |
+| Long-only Sharpe — gross | 4.68 | 2.43 |
+| **Long-only Sharpe — net** | **2.70** | **0.74** |
+| Long-only Sharpe, net excess of benchmark | 7.51 | 2.52 |
+| Benchmark Sharpe | 0.39 | -0.07 |
+| Long-short cumulative — gross | 859.2% | 239.8% |
+| Long-short cumulative — net | 502.7% | 103.2% |
+| Long-only cumulative — net | 233.9% | 29.8% |
+| Long-short max drawdown — net | -3.1% | -5.1% |
+| Decile monotonicity — gross | 1.000 | 1.000 |
+| Decile monotonicity — net | 1.000 | 1.000 |
 
 <!-- /RESULTS_TABLE -->
 
@@ -131,28 +158,48 @@ full set, including the training window, is in [`docs/figures/`](docs/figures).
 Cumulative curves are additive (`cumsum`), matching the parent framework's
 plots.
 
-The decile fan opens cleanly and never crosses — Q10 on top, Q1 at the
-bottom, every rank in between where it belongs, over 396 out-of-sample days:
+Decile cumulative returns net of costs, with the gross long-short leg drawn
+faintly behind the net one. The fan opens cleanly and never crosses — Q10 on
+top, Q1 at the bottom, every rank in between where it belongs, and the
+ordering survives costs intact (net monotonicity 1.000):
 
 ![Factor summary, out-of-sample](docs/figures/GNN_IC4Net_test_close_t1_summary.png)
 
-The decile bar chart shows the same thing as levels. The spread is monotone
-across all ten buckets rather than driven by one extreme: Q10 earns +0.247% a
-day and Q1 loses -0.358%, and every step in between moves the right way
-(Spearman monotonicity 1.000).
+**The signal survives costs, but only just, and only at the top.** Gross,
+every decile from Q6 up is positive. Net, the ~17 bps daily drag is larger
+than the gross return of all but one bucket, so **Q10 is the only decile that
+stays above water** at +0.075% a day:
 
 ![Decile returns, out-of-sample](docs/figures/GNN_IC4Net_test_close_t1_decile_bar.png)
 
-Worth noting what the benchmark did over this window: the equal-weighted
-CSI 1000 returned an annualised Sharpe of **-0.07**, essentially flat to
-slightly down. The long-only top decile posted 2.43 over the same dates, so
-that figure is not market drift in disguise — the excess-of-benchmark Sharpe
-is 7.78.
+That is the practical finding. The factor's ranking is sound across the whole
+cross-section — the ordering is perfectly monotone before and after costs —
+but at this turnover only the extreme buckets are tradable. A strategy built
+on it has to be concentrated in the top decile (or run long-short), not a
+broad tilt across the upper half.
 
-![Quintile cumulative return](docs/figures/GNN_IC4Net_test_close_t1_quintile_cumret.png)
+The cumulative curves put a size on what costs take:
+
+![Gross versus net cumulative return](docs/figures/GNN_IC4Net_test_close_t1_cost_impact.png)
+
+Long-short goes from +239.8% gross to **+103.2% net** — costs eat 57% of it,
+and the Sharpe falls from 10.25 to **4.41**. The long-only top decile gives up
+more in relative terms, +98.0% to **+29.8%**, Sharpe 2.43 to **0.74**, because
+it has no short leg to carry half the spread. Both remain positive, which is
+the non-obvious part: a 78%-turnover signal usually does not.
+
+The long-only net Sharpe of 0.74 looks unremarkable until you compare it with
+what the market did. The equal-weighted CSI 1000 returned an annualised Sharpe
+of **-0.07** over these dates, essentially flat to slightly down, so none of
+that 0.74 is market drift. Stripping the market exposure leaves a net excess
+Sharpe of **2.52** — the market-neutral view of the same result, and the
+honest one for a stock-selection signal.
 
 The RankIC series shows where the stability comes from: IC is positive on 86%
-of days rather than being carried by a few large ones.
+of days rather than being carried by a few large ones. Note that IC itself is
+cost-independent — it measures ranking quality, not P&L — which is why it is
+the metric to watch when comparing model variants, and the net Sharpes are
+the metric to watch when deciding whether to trade one.
 
 ![RankIC over time](docs/figures/GNN_IC4Net_test_close_t1_ic.png)
 
@@ -187,68 +234,10 @@ That the industry tilts stay small is a direct check on the architecture's
 central claim: bounding `alpha` was supposed to keep the graph branch from
 turning the factor into an industry ranking, and the attribution says it did.
 
-### Against the previous model
-
-Same universe, same out-of-sample dates, same metric — out-of-sample RankICIR
-for this model against the industry-GNN it replaces (`Composite10`: the same
-architecture on the older 28-factor input set) and two earlier variants:
-
-| out-of-sample, 2023-01-03 .. 2024-10-31 | Composite5 | Composite9 | Composite10 | **GNN_IC4Net** |
-| --- | --- | --- | --- | --- |
-| Mean RankIC | 0.042 | 0.076 | 0.082 | **0.089** |
-| **RankICIR** | 0.490 | 0.919 | 0.921 | **1.065** |
-| IC > 0 frequency | 69.7% | 84.6% | 83.3% | **86.1%** |
-
-The new input set is a clear step up on every column, and the gain is in
-consistency as much as in size: mean RankIC improves 8% over Composite10
-while ICIR improves 16%, because the IC is steadier day to day rather than
-larger on its good days.
-
-The jump from Composite5 to the rest is the input set, not the architecture —
-Composite5 runs the same industry-GNN over only 8 raw factors. The jump from
-Composite9 to Composite10 is the architecture at fixed inputs, and it is
-small (0.919 to 0.921). What separates this model is the 22-factor screen
-feeding it, with the graph contributing a consistent but secondary refinement.
-That ordering is worth keeping in mind before attributing the result to the
-GNN alone.
-
-### Other caveats
-
-**The test window stops at 2024-11-01, not 2024-12-31.** Not a modelling
-choice — the daily price and index-weight tables this project is evaluated
-against end there.
-
-**Every Sharpe and cumulative figure is gross of costs, and turnover is the
-binding constraint.** Top-decile turnover is ~78% per day — the book is
-almost entirely replaced at every close. Over 396 days that is on the order
-of 300 round trips, so the out-of-sample long-short Sharpe of 10.25 and the
-+239.8% cumulative figure describe a frictionless version of the signal, not
-a P&L. At a few basis points of round-trip cost most of it is gone. Sizing
-this into something tradable means a holding-period or turnover penalty in
-the objective, which this model does not have.
-
-**Execution has to happen at the close, and that is a real assumption.**
-Twelve of the 22 inputs are last-30-minute intraday readings, so the signal is
-only fully formed minutes before the auction it must be traded in. A
-close-to-close backtest charges nothing for that. Any slippage between the
-observed close and the achievable fill comes straight out of a +0.247%/day
-top decile.
-
-**The long-only Sharpe is the number most likely to be misread** — though
-here it holds up. It is 2.43, against an equal-weighted universe that
-returned -0.07 over the same window, giving an excess of 7.78. Both are
-reported because a long-only Sharpe quoted without its benchmark usually says
-more about the market than about the model; in this window the market
-contributed nothing, so the figure is the factor's.
-
-**Train-vs-test decay is real but modest.** ICIR falls from 1.73 to 1.07 and
-mean RankIC from 0.110 to 0.089 — roughly a third of the in-sample edge given
-back — while decile monotonicity stays at 1.000 and IC stays positive on 86%
-of out-of-sample days.
-
-Reproduce with `python scripts/reproduce_run.py`. The tables above the caveats
-are rendered from the run's own metrics file by
-`scripts/update_readme_results.py`, so they cannot drift from the artifacts.
+Reproduce all of the above with `python scripts/reproduce_run.py`. The metrics
+table is rendered from the run's own output by
+`scripts/update_readme_results.py`, so the numbers cannot drift from the
+artifacts they came from.
 
 ---
 
@@ -327,7 +316,8 @@ checkpoint, a torch-free JSON weight dump, and a config manifest. Figures go
 to `docs/figures/` — four per (window, holding period) plus the Barra
 attribution, which needs `--barra-dir` pointing at the exposure parquets and
 is skipped without complaint when they are absent. `--no-figures` turns the
-whole figure step off. It also
+whole figure step off; `--no-costs`, `--slippage-bps` and `--commission-bps`
+adjust the cost stack. It also
 writes the scored factor into the parent framework's `factors/<year>/` tree in
 that project's own file layout, so its single-factor test picks the factor up
 unchanged (`--no-framework-output` disables this).
@@ -347,7 +337,8 @@ src/iagnn/
   model.py        SparseMeanSAGE + the residual scorer
   losses.py       per-date IC objective
   trainer.py      training and scoring loops
-  evaluate.py     RankIC, ICIR, decile returns, Sharpes, turnover
+  evaluate.py     RankIC, ICIR, decile returns, Sharpes gross and net
+  costs.py        China A-share cost stack, turnover, net-of-cost returns
   barra.py        style/industry attribution by daily cross-sectional regression
   plots.py        the five figures, in the parent framework's house style
   report.py       turns a finished run into figures
@@ -384,6 +375,15 @@ reclassification table, which the parent project does not have.
 **Index weight is a size proxy, not market cap.** No direct market-cap field
 exists in the parent factor set. Index weights are free-float-cap weighted, so
 the *ordering* is right, which is all the k-NN step uses.
+
+**Costs are charged on modelled turnover, not on simulated fills.** Each
+day's bucket turnover is the weight-based figure, `0.5 * sum |w_t - w_t-1|`
+over equal-weighted holdings, and the charge is that turnover times the
+round-trip rate. This is a portfolio-level approximation: it assumes every
+name trades at the reference price with the same slippage, and it models no
+partial fills, no limit-up/limit-down lockouts (a real constraint in A-shares)
+and no borrow availability on the short leg. It is the standard way to cost a
+factor backtest and it is not a substitute for an execution simulation.
 
 **Missing features are filled with the daily mean.** Filling with `0.0` after
 z-scoring means "average on this factor today", which keeps the row in the

@@ -19,7 +19,7 @@ def figure_paths(cfg: PipelineConfig, window: str, returns: str) -> dict[str, Pa
     stem = f"{cfg.factor_name}_{window}_{returns}"
     return {
         "summary": base / f"{stem}_summary.png",
-        "quintile_cumulative": base / f"{stem}_quintile_cumret.png",
+        "cost_impact": base / f"{stem}_cost_impact.png",
         "decile_bar": base / f"{stem}_decile_bar.png",
         "ic_series": base / f"{stem}_ic.png",
     }
@@ -41,11 +41,11 @@ def build_figures(
         label = f"{cfg.factor_name} [{window} / {returns}]"
 
         plots.plot_factor_summary(report, label, paths["summary"])
-        plots.plot_quintile_cumulative(
-            report["quintile_returns"], label, paths["quintile_cumulative"],
-            benchmark=report.get("benchmark"),
+        plots.plot_cost_impact(report, label, paths["cost_impact"])
+        plots.plot_decile_bar(
+            report["quantile_returns"], label, paths["decile_bar"],
+            net_quantiles=report.get("net_quantile_returns"),
         )
-        plots.plot_decile_bar(report["quantile_returns"], label, paths["decile_bar"])
         plots.plot_ic_series(report["ic_series"], label, paths["ic_series"])
 
         for name, path in paths.items():
@@ -53,6 +53,14 @@ def build_figures(
         if verbose:
             print(f"  figures for {key} -> {paths['summary'].parent}")
     return written
+
+
+def write_cost_table(cfg: PipelineConfig) -> Path:
+    """Persist the cost stack next to the figures, so the README can cite it."""
+    path = Path(cfg.figure_dir).parent / f"{cfg.factor_name}_transaction_costs.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cfg.costs.describe().to_csv(path, index=False, encoding="utf-8")
+    return path
 
 
 def build_barra_figure(

@@ -3,16 +3,20 @@
 Five figures, matching what that project's single-factor test emits so the
 two can be read side by side:
 
-* `plot_decile_bar`         — mean forward return per decile
-* `plot_quintile_cumulative`— five quintile curves plus the long-short leg
-* `plot_ic_series`          — daily RankIC with its rolling mean
-* `plot_factor_summary`     — stat tiles over ten decile curves, long-short
-                              and benchmark overlaid
-* `plot_barra_industry`     — Barra style and industry exposure bars
+* `plot_decile_bar`     — mean forward return per decile, gross beside net
+* `plot_cost_impact`    — gross versus net cumulative return, both portfolios
+* `plot_ic_series`      — daily RankIC with its rolling mean
+* `plot_factor_summary` — stat tiles over ten net decile curves, with the
+                          gross long-short leg and the benchmark overlaid
+* `plot_barra_industry` — Barra style and industry exposure bars
 
 Cumulative curves are **additive** (`cumsum`), which is the framework's
 convention. Compounding here instead would make these plots disagree with
 that project's reports on the same factor.
+
+Where a figure can show gross and net, it shows both. Plotting only the net
+series hides how much of the signal the cost stack is eating, and plotting
+only the gross series is the more familiar way to be wrong.
 """
 from __future__ import annotations
 
@@ -53,13 +57,32 @@ def _save(fig, path: str | Path, dpi: int = 150) -> Path:
     return path
 
 
-def plot_decile_bar(quantiles: pd.DataFrame, factor: str, path: str | Path) -> Path:
-    """Mean forward return per decile. A working factor climbs left to right."""
+def plot_decile_bar(
+    quantiles: pd.DataFrame, factor: str, path: str | Path,
+    net_quantiles: pd.DataFrame | None = None,
+) -> Path:
+    """Mean forward return per decile, gross beside net.
+
+    A working factor climbs left to right. Costs shift every bar down by
+    roughly the same amount, so what to look for in the net series is not the
+    level but whether the *spread* still clears zero.
+    """
     means = quantiles.mean()
-    fig, ax = plt.subplots(figsize=(6, 3.4))
-    colors = ["#C44E52" if v < 0 else "#4C72B0" for v in means.values]
-    ax.bar(range(len(means)), means.values, color=colors)
-    ax.set_xticks(range(len(means)))
+    fig, ax = plt.subplots(figsize=(7.5, 3.8))
+    x = np.arange(len(means))
+
+    if net_quantiles is None or net_quantiles.empty:
+        ax.bar(x, means.values, color=["#C44E52" if v < 0 else "#4C72B0" for v in means.values])
+    else:
+        net_means = net_quantiles.mean().reindex(means.index)
+        width = 0.42
+        ax.bar(x - width / 2, means.values, width, color="#9EC2E6", label="Gross")
+        ax.bar(x + width / 2, net_means.values, width,
+               color=["#C44E52" if v < 0 else "#26619C" for v in net_means.values],
+               label="Net of costs")
+        ax.legend(fontsize=8, frameon=False)
+
+    ax.set_xticks(x)
     ax.set_xticklabels(means.index, fontsize=8)
     ax.axhline(0, color="black", linewidth=0.6)
     ax.set_title(f"{factor} — mean forward return by decile", fontsize=10)
@@ -71,27 +94,42 @@ def plot_decile_bar(quantiles: pd.DataFrame, factor: str, path: str | Path) -> P
     return _save(fig, path)
 
 
-def plot_quintile_cumulative(
-    quintiles: pd.DataFrame, factor: str, path: str | Path, benchmark: pd.Series | None = None
+def plot_cost_impact(
+    report: dict, factor: str, path: str | Path
 ) -> Path:
-    """Five quintile cumulative curves plus the Q5-Q1 long-short leg."""
-    cum = quintiles.fillna(0).cumsum()
-    fig, ax = plt.subplots(figsize=(8, 4.2))
+    """Gross versus net cumulative return, for both portfolios.
 
-    for col, color, label in zip(quintiles.columns, QUINTILE_COLORS, QUINTILE_LABELS):
-        ax.plot(cum.index, cum[col].values, color=color, label=label, linewidth=1.1)
+    The single most useful chart for a high-turnover factor: the vertical gap
+    between each pair of lines is what the cost stack takes.
+    """
+    quantiles = report["quantile_returns"]
+    net_quantiles = report["net_quantile_returns"]
+    net_ls = report["net_long_short"]
+    top, bottom = quantiles.columns[-1], quantiles.columns[0]
 
-    spread = (quintiles[quintiles.columns[-1]] - quintiles[quintiles.columns[0]]).fillna(0).cumsum()
-    ax.plot(spread.index, spread.values, color=LONG_SHORT_COLOR, linewidth=1.6,
-            linestyle="--", label="Long-short (Q5 - Q1)")
+    gross_ls = (quantiles[top] - quantiles[bottom]).fillna(0).cumsum()
+    net_ls_cum = net_ls.reindex(quantiles.index).fillna(0).cumsum()
+    gross_lo = quantiles[top].fillna(0).cumsum()
+    net_lo = net_quantiles[top].reindex(quantiles.index).fillna(0).cumsum()
 
+    fig, ax = plt.subplots(figsize=(8.5, 4.4))
+    ax.plot(gross_ls.index, gross_ls.values, color=LONG_SHORT_COLOR, linewidth=1.2,
+            linestyle="--", alpha=0.55, label="Long-short, gross")
+    ax.plot(net_ls_cum.index, net_ls_cum.values, color=LONG_SHORT_COLOR, linewidth=1.8,
+            label="Long-short, net of costs")
+    ax.plot(gross_lo.index, gross_lo.values, color=QUINTILE_COLORS[0], linewidth=1.2,
+            linestyle="--", alpha=0.55, label="Long-only top decile, gross")
+    ax.plot(net_lo.index, net_lo.values, color=QUINTILE_COLORS[0], linewidth=1.8,
+            label="Long-only top decile, net of costs")
+
+    benchmark = report.get("benchmark")
     if benchmark is not None and not benchmark.empty:
-        bm = benchmark.reindex(cum.index).fillna(0).cumsum()
+        bm = benchmark.reindex(quantiles.index).fillna(0).cumsum()
         ax.plot(bm.index, bm.values, color=BENCHMARK_COLOR, linewidth=1.0,
                 linestyle=":", label="Benchmark (equal-weighted universe)")
 
     ax.axhline(0, color="grey", linewidth=0.6, linestyle="--")
-    ax.set_title(f"{factor} — quintile cumulative return", fontsize=11)
+    ax.set_title(f"{factor} — the cost of turnover", fontsize=11)
     ax.set_xlabel("Date", fontsize=9)
     ax.set_ylabel("Cumulative return (additive)", fontsize=9)
     ax.legend(fontsize=7, loc="upper left", frameon=False)
@@ -135,16 +173,28 @@ def plot_factor_summary(
 ) -> Path:
     """The framework's summary card: stat tiles over ten decile curves.
 
-    `report` is an `evaluate.evaluate()` result.
+    The decile curves are **net of transaction costs** — that is the series a
+    reader should judge the factor on — with the gross long-short leg drawn
+    faintly behind the net one so the cost drag is visible rather than
+    quietly netted away. `report` is an `evaluate.evaluate()` result.
     """
     quantiles = report["quantile_returns"]
+    net_quantiles = report.get("net_quantile_returns")
+    net_ls = report.get("net_long_short")
     metrics = report["metrics"]
     benchmark = report.get("benchmark")
     if quantiles.empty:
         raise ValueError("No quantile returns to plot.")
 
-    cum = quantiles.fillna(0).cumsum()
-    spread = (quantiles[quantiles.columns[-1]] - quantiles[quantiles.columns[0]]).fillna(0).cumsum()
+    plotted = net_quantiles if net_quantiles is not None and not net_quantiles.empty else quantiles
+    cum = plotted.fillna(0).cumsum()
+    gross_spread = (
+        quantiles[quantiles.columns[-1]] - quantiles[quantiles.columns[0]]
+    ).fillna(0).cumsum()
+    net_spread = (
+        net_ls.reindex(quantiles.index).fillna(0).cumsum()
+        if net_ls is not None and not net_ls.empty else None
+    )
 
     fig = plt.figure(figsize=(11.5, 7.5))
     gs = fig.add_gridspec(2, 5, height_ratios=[1, 4.3], hspace=0.42, wspace=0.22)
@@ -152,9 +202,9 @@ def plot_factor_summary(
     tiles = [
         ("IC Mean", metrics.get("ic_mean"), "{:.4f}"),
         ("ICIR", metrics.get("icir"), "{:.3f}"),
-        ("LS Sharpe", metrics.get("ls_sharpe"), "{:.2f}"),
-        ("Long-only Sharpe", metrics.get("long_only_sharpe"), "{:.2f}"),
-        ("LO excess Sharpe", metrics.get("long_only_excess_sharpe"), "{:.2f}"),
+        ("LS Sharpe, net", metrics.get("ls_sharpe_net"), "{:.2f}"),
+        ("Long-only Sharpe, net", metrics.get("long_only_sharpe_net"), "{:.2f}"),
+        ("LO excess Sharpe, net", metrics.get("long_only_excess_sharpe_net"), "{:.2f}"),
     ]
     for i, (label, value, fmt) in enumerate(tiles):
         ax = fig.add_subplot(gs[0, i])
@@ -175,15 +225,20 @@ def plot_factor_summary(
     for i, col in enumerate(cum.columns):
         ax.plot(cum.index, cum[col].values, color=cmap(0.3 + 0.6 * i / max(n - 1, 1)),
                 linewidth=1.0, label=col)
-    ax.plot(spread.index, spread.values, color=LONG_SHORT_COLOR, linewidth=1.5,
-            linestyle="--", label=f"Long-short ({cum.columns[-1]} - {cum.columns[0]})")
+    ax.plot(gross_spread.index, gross_spread.values, color=LONG_SHORT_COLOR, linewidth=1.2,
+            linestyle="--", alpha=0.45,
+            label=f"Long-short ({cum.columns[-1]} - {cum.columns[0]}), gross")
+    if net_spread is not None:
+        ax.plot(net_spread.index, net_spread.values, color=LONG_SHORT_COLOR, linewidth=1.7,
+                label="Long-short, net of costs")
     if benchmark is not None and not benchmark.empty:
         bm = benchmark.reindex(cum.index).fillna(0).cumsum()
         ax.plot(bm.index, bm.values, color=BENCHMARK_COLOR, linewidth=1.0,
                 linestyle=":", label="Benchmark")
 
     ax.set_xlim(cum.index.min(), cum.index.max())
-    ax.set_title(f"Decile cumulative returns — {factor}", fontsize=12)
+    net_label = " (net of costs)" if plotted is net_quantiles else ""
+    ax.set_title(f"Decile cumulative returns{net_label} — {factor}", fontsize=12)
     ax.set_xlabel("Date", fontsize=9)
     ax.set_ylabel("Cumulative return (additive)", fontsize=9)
     ax.tick_params(labelsize=8)

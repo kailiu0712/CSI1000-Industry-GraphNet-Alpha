@@ -37,9 +37,9 @@ def test_every_figure_renders(tmp_path):
 
     paths = [
         plots.plot_factor_summary(report, "factor", tmp_path / "summary.png"),
-        plots.plot_quintile_cumulative(report["quintile_returns"], "factor",
-                                       tmp_path / "cum.png", benchmark=report["benchmark"]),
-        plots.plot_decile_bar(report["quantile_returns"], "factor", tmp_path / "bar.png"),
+        plots.plot_cost_impact(report, "factor", tmp_path / "cost.png"),
+        plots.plot_decile_bar(report["quantile_returns"], "factor", tmp_path / "bar.png",
+                              net_quantiles=report["net_quantile_returns"]),
         plots.plot_ic_series(report["ic_series"], "factor", tmp_path / "ic.png"),
     ]
     for path in paths:
@@ -61,17 +61,25 @@ def test_barra_figure_trims_to_the_strongest_tilts(tmp_path):
     assert _is_real_png(path)
 
 
-def test_quintile_curves_are_additive_not_compounded():
+def test_decile_curves_are_additive_not_compounded():
     """The last point of the plotted curve must equal the plain sum."""
     report = evaluate(_panel(), "factor")
-    quintiles = report["quintile_returns"]
-    top = quintiles.columns[-1]
+    quantiles = report["quantile_returns"]
+    top = quantiles.columns[-1]
 
-    plotted_end = quintiles[top].fillna(0).cumsum().iloc[-1]
-    assert np.isclose(plotted_end, quintiles[top].fillna(0).sum())
+    plotted_end = quantiles[top].fillna(0).cumsum().iloc[-1]
+    assert np.isclose(plotted_end, quantiles[top].fillna(0).sum())
     # And it must differ from the compounded figure, or the test proves nothing.
-    compounded = (1 + quintiles[top].fillna(0)).prod() - 1
+    compounded = (1 + quantiles[top].fillna(0)).prod() - 1
     assert not np.isclose(plotted_end, compounded, rtol=1e-9)
+
+
+def test_decile_bar_renders_without_a_net_series(tmp_path):
+    """The gross-only path must still work when costs were not computed."""
+    report = evaluate(_panel(), "factor")
+    path = plots.plot_decile_bar(report["quantile_returns"], "factor",
+                                 tmp_path / "bar_gross.png", net_quantiles=None)
+    assert _is_real_png(path)
 
 
 def test_figures_land_in_a_directory_that_did_not_exist(tmp_path):

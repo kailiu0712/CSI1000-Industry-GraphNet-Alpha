@@ -100,7 +100,9 @@ def run(
             col = f"ret_{name}"
             if col not in sliced.columns:
                 continue
-            reports[f"{window}/{name}"] = evaluate(sliced, cfg.factor_name, return_col=col)
+            reports[f"{window}/{name}"] = evaluate(
+                sliced, cfg.factor_name, return_col=col, costs=cfg.costs
+            )
 
     artifacts = save_run_outputs(cfg.output_dir, cfg, predictions, reports, history.to_frame())
     artifacts["checkpoint"] = save_checkpoint(model, cfg, Path(cfg.output_dir) / f"{cfg.factor_name}.pt")
@@ -118,9 +120,10 @@ def run(
     if make_figures:
         if verbose:
             print("\nBuilding figures ...")
-        from .report import build_barra_figure, build_figures
+        from .report import build_barra_figure, build_figures, write_cost_table
 
         artifacts.update(build_figures(cfg, reports, verbose=verbose))
+        artifacts["cost_table"] = write_cost_table(cfg)
         barra_path = build_barra_figure(cfg, predictions, verbose=verbose)
         if barra_path is not None:
             artifacts["barra_industry"] = barra_path

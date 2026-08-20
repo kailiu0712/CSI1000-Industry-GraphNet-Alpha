@@ -52,6 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--barra-dir", default=None,
                          help="Barra exposure parquet directory, for the attribution figure.")
     run_cmd.add_argument("--no-figures", action="store_true", help="Skip figure generation.")
+    run_cmd.add_argument("--slippage-bps", type=float, default=None,
+                         help="Per-side slippage assumption (default 5 bps).")
+    run_cmd.add_argument("--commission-bps", type=float, default=None,
+                         help="Per-side brokerage commission (default 2.5 bps).")
+    run_cmd.add_argument("--no-costs", action="store_true",
+                         help="Report gross figures only (sets every cost rate to zero).")
     _add_window_args(run_cmd)
 
     eval_cmd = sub.add_parser("evaluate", help="Re-score metrics from a saved predictions file.")
@@ -91,6 +97,21 @@ def _config_from_args(args) -> "object":
         cfg = cfg.with_(figure_dir=Path(args.figure_dir))
     if getattr(args, "barra_dir", None):
         cfg = cfg.with_(data=replace(cfg.data, barra_exposure_dir=Path(args.barra_dir)))
+
+    if getattr(args, "no_costs", False):
+        from .costs import TransactionCosts
+        cfg = cfg.with_(costs=TransactionCosts(
+            commission_bps=0.0, transfer_fee_bps=0.0, stamp_duty_bps=0.0,
+            stamp_duty_bps_before=0.0, slippage_bps=0.0, short_borrow_annual_bps=0.0,
+        ))
+    else:
+        overrides = {}
+        if getattr(args, "slippage_bps", None) is not None:
+            overrides["slippage_bps"] = args.slippage_bps
+        if getattr(args, "commission_bps", None) is not None:
+            overrides["commission_bps"] = args.commission_bps
+        if overrides:
+            cfg = cfg.with_(costs=replace(cfg.costs, **overrides))
     return cfg
 
 

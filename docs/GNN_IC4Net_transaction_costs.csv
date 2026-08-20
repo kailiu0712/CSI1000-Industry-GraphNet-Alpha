@@ -1,0 +1,6 @@
+component,bps,side,note
+Stamp duty (印花税),5.0,sell only,10.0 bps before 2023-08-28
+Commission (佣金),2.5,both sides,¥5 minimum ignored
+Transfer fee (过户费),0.1,both sides,SH and SZ since 2022
+Slippage / impact,5.0,both sides,"assumption, override for size"
+Short borrow (融券),800.0,short leg,"annualised, financing"
