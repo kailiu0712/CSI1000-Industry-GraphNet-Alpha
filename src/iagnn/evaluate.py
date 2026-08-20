@@ -2,11 +2,8 @@
 
 Deliberately the same metric definitions the parent research framework's
 single-factor test uses, so a number produced here can be compared directly
-against that project's reports rather than only against itself. In
-particular the annualisation factor is 252 and cumulative returns are
-**additive** (`cumsum`, not `cumprod`) — that is what the framework's plots
-show, and mixing the two conventions is the easiest way to produce two
-"cumulative returns" that disagree by an order of magnitude.
+against that project's reports rather than only against itself. The
+annualisation factor is 252 throughout.
 
 * **RankIC** — daily Spearman correlation between the factor and the forward
   return. Rank-based, because a factor is used to *order* stocks; a few
@@ -22,6 +19,11 @@ show, and mixing the two conventions is the easiest way to produce two
   market beta: in a rising market a useless factor still posts a positive
   long-only Sharpe. The excess figure is the one that says whether the factor
   added anything.
+* **annualised return** — geometric, `(prod(1+r))**(252/n) - 1`, because
+  that is what the term means unqualified. Note the plotted curves stay
+  additive (`cumsum`) to match the framework's charts: they show the shape
+  of a track record, while this number sizes it. Reading the end of an
+  additive curve as a compounded return overstates a result badly.
 * **turnover** — fraction of the long bucket replaced day over day, the
   first-order check on whether the spread survives costs.
 
@@ -139,6 +141,33 @@ def _max_drawdown_additive(series: pd.Series) -> float:
     return float((curve - curve.cummax()).min())
 
 
+def annualised_return(
+    series: pd.Series, periods_per_year: int = TRADING_DAYS_PER_YEAR
+) -> float:
+    """Geometric annualised return (CAGR) of a daily return series.
+
+        (prod(1 + r)) ** (periods_per_year / n) - 1
+
+    Geometric rather than `mean * 252`, because "annualised return" without
+    qualification means the rate that actually compounds to the observed
+    result — the arithmetic version ignores volatility drag and reads high
+    for a volatile series. This is a different convention from the plotted
+    curves, which stay additive (`cumsum`) to match the parent framework's
+    charts; the curves show the shape of the track record, this number sizes
+    it.
+
+    A daily return of -100% or worse leaves nothing to compound, so the
+    result is floored at -1.0 rather than going complex.
+    """
+    s = series.dropna()
+    if s.empty:
+        return np.nan
+    growth = float((1.0 + s).prod())
+    if growth <= 0:
+        return -1.0
+    return growth ** (periods_per_year / len(s)) - 1.0
+
+
 def long_short_summary(
     quantiles: pd.DataFrame,
     benchmark: pd.Series | None = None,
@@ -146,9 +175,7 @@ def long_short_summary(
 ) -> dict[str, float]:
     """Bucket-portfolio statistics: long-short, long-only, and benchmark.
 
-    Cumulative figures are additive (`cumsum`) to match the parent
-    framework's plots; `*_compounded` is provided alongside for the few
-    places where geometric linking is the right question.
+    Return figures are annualised geometrically; see `annualised_return`.
     """
     if quantiles.empty:
         return {}
@@ -160,12 +187,11 @@ def long_short_summary(
         "ls_daily_mean": float(spread.mean()),
         "ls_daily_std": float(spread.std(ddof=1)),
         "ls_sharpe": _sharpe(spread, periods_per_year),
-        "ls_cumulative_return": float(spread.sum()),
-        "ls_cumulative_return_compounded": float((1 + spread).prod() - 1),
+        "ls_annualised_return": annualised_return(spread, periods_per_year),
         "ls_max_drawdown": _max_drawdown_additive(spread),
         "long_only_daily_mean": float(long_only.mean()),
         "long_only_sharpe": _sharpe(long_only, periods_per_year),
-        "long_only_cumulative_return": float(long_only.sum()),
+        "long_only_annualised_return": annualised_return(long_only, periods_per_year),
         "top_decile_mean": float(quantiles[top].mean()),
         "bottom_decile_mean": float(quantiles[bottom].mean()),
         "monotonicity": float(pd.Series(quantiles.mean().to_numpy()).rank().corr(
@@ -178,10 +204,10 @@ def long_short_summary(
         out.update({
             "benchmark_daily_mean": float(bm.mean()),
             "benchmark_sharpe": _sharpe(bm, periods_per_year),
-            "benchmark_cumulative_return": float(bm.sum()),
+            "benchmark_annualised_return": annualised_return(bm, periods_per_year),
             "long_only_excess_daily_mean": float(excess.mean()),
             "long_only_excess_sharpe": _sharpe(excess, periods_per_year),
-            "long_only_excess_cumulative_return": float(excess.sum()),
+            "long_only_excess_annualised_return": annualised_return(excess, periods_per_year),
         })
     return out
 
@@ -207,11 +233,11 @@ def net_summary(
     out = {
         "ls_daily_mean_net": float(spread.mean()),
         "ls_sharpe_net": _sharpe(spread, periods_per_year),
-        "ls_cumulative_return_net": float(spread.sum()),
+        "ls_annualised_return_net": annualised_return(spread, periods_per_year),
         "ls_max_drawdown_net": _max_drawdown_additive(spread),
         "long_only_daily_mean_net": float(long_only.mean()),
         "long_only_sharpe_net": _sharpe(long_only, periods_per_year),
-        "long_only_cumulative_return_net": float(long_only.sum()),
+        "long_only_annualised_return_net": annualised_return(long_only, periods_per_year),
         "top_decile_mean_net": float(net_quantiles[top].mean()),
         "bottom_decile_mean_net": float(net_quantiles[net_quantiles.columns[0]].mean()),
         "monotonicity_net": float(pd.Series(net_quantiles.mean().to_numpy()).rank().corr(
@@ -224,7 +250,7 @@ def net_summary(
         out.update({
             "long_only_excess_daily_mean_net": float(excess.mean()),
             "long_only_excess_sharpe_net": _sharpe(excess, periods_per_year),
-            "long_only_excess_cumulative_return_net": float(excess.sum()),
+            "long_only_excess_annualised_return_net": annualised_return(excess, periods_per_year),
         })
     return out
 
@@ -337,8 +363,11 @@ def format_report(metrics: dict[str, object]) -> str:
         f"  ->  {fmt('long_only_sharpe_net', '.2f')} net"
         f"   (net excess of benchmark: {fmt('long_only_excess_sharpe_net', '.2f')})",
         f"Benchmark Sharpe  : {fmt('benchmark_sharpe', '.2f')}",
-        f"Long-short cum.   : {fmt('ls_cumulative_return', '.2%')} gross"
-        f"  ->  {fmt('ls_cumulative_return_net', '.2%')} net (additive)",
+        f"Long-short ann.   : {fmt('ls_annualised_return', '.1%')} gross"
+        f"  ->  {fmt('ls_annualised_return_net', '.1%')} net",
+        f"Long-only ann.    : {fmt('long_only_annualised_return', '.1%')} gross"
+        f"  ->  {fmt('long_only_annualised_return_net', '.1%')} net",
+        f"Benchmark ann.    : {fmt('benchmark_annualised_return', '.1%')}",
         f"Long-short max DD : {fmt('ls_max_drawdown_net', '.2%')} net",
         f"Decile monotonic. : {fmt('monotonicity', '.3f')} gross"
         f"  ->  {fmt('monotonicity_net', '.3f')} net",

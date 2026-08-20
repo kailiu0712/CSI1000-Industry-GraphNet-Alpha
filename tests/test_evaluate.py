@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from iagnn.evaluate import (
     daily_rank_ic,
@@ -105,10 +106,38 @@ def test_long_only_excess_strips_the_market_move():
     assert abs(metrics["long_only_excess_sharpe"]) < 1.0, "excess must not inherit the drift"
 
 
-def test_additive_and_compounded_cumulatives_are_both_reported():
+def test_annualised_return_is_geometric_not_arithmetic():
+    from iagnn.evaluate import annualised_return
+
+    # A steady +0.1% a day for exactly one year compounds to (1.001)^252 - 1.
+    steady = pd.Series([0.001] * 252)
+    assert annualised_return(steady) == pytest.approx(1.001 ** 252 - 1)
+    # Which is strictly above the arithmetic 252 * 0.001 = 25.2%.
+    assert annualised_return(steady) > 252 * 0.001
+
+
+def test_annualised_return_scales_a_partial_year_up():
+    from iagnn.evaluate import annualised_return
+
+    half_year = pd.Series([0.001] * 126)
+    full_year = pd.Series([0.001] * 252)
+    assert annualised_return(half_year) == pytest.approx(annualised_return(full_year))
+
+
+def test_annualised_return_is_floored_at_total_loss():
+    from iagnn.evaluate import annualised_return
+
+    assert annualised_return(pd.Series([-1.0, 0.05, 0.05])) == -1.0
+    assert np.isnan(annualised_return(pd.Series(dtype=float)))
+
+
+def test_gross_and_net_annualised_returns_are_both_reported():
     metrics = evaluate(_panel(signal=1.0), "factor")["metrics"]
-    assert "ls_cumulative_return" in metrics
-    assert "ls_cumulative_return_compounded" in metrics
+    for key in ("ls_annualised_return", "ls_annualised_return_net",
+                "long_only_annualised_return", "long_only_annualised_return_net",
+                "benchmark_annualised_return"):
+        assert key in metrics
+    assert metrics["ls_annualised_return_net"] < metrics["ls_annualised_return"]
 
 
 def test_max_drawdown_is_zero_for_a_monotonically_rising_curve():
