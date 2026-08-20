@@ -18,6 +18,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BEGIN = "<!-- RESULTS_TABLE -->"
 END = "<!-- /RESULTS_TABLE -->"
 
+# Gross of costs. The net figures live in the README's transaction-cost
+# paragraph rather than in this table -- doubling every row gross/net made the
+# table harder to read than the one number that matters (see NET_ROWS below,
+# which that paragraph is written from).
 ROWS = [
     ("Trading days", "n_days", "{:,.0f}"),
     ("Mean RankIC", "ic_mean", "{:.4f}"),
@@ -25,27 +29,30 @@ ROWS = [
     ("**ICIR**", "icir", "**{:.3f}**"),
     ("IC > 0 frequency", "ic_positive_rate", "{:.1%}"),
     ("IC t-stat", "ic_t_stat", "{:.1f}"),
-    ("Top-decile daily turnover", "top_decile_turnover", "{:.1%}"),
-    ("Daily cost drag", "top_decile_daily_cost_bps", "{:.1f} bps"),
-    ("Top decile, mean daily — gross", "top_decile_mean", "{:.4%}"),
-    ("Top decile, mean daily — **net**", "top_decile_mean_net", "**{:.4%}**"),
-    ("Bottom decile, mean daily — gross", "bottom_decile_mean", "{:.4%}"),
-    ("Bottom decile, mean daily — net", "bottom_decile_mean_net", "{:.4%}"),
+    ("Top decile, mean daily return", "top_decile_mean", "{:.4%}"),
+    ("Bottom decile, mean daily return", "bottom_decile_mean", "{:.4%}"),
     ("Benchmark (equal-weighted), mean daily", "benchmark_daily_mean", "{:.4%}"),
-    ("Long-short Sharpe — gross", "ls_sharpe", "{:.2f}"),
-    ("**Long-short Sharpe — net**", "ls_sharpe_net", "**{:.2f}**"),
-    ("Long-only Sharpe — gross", "long_only_sharpe", "{:.2f}"),
-    ("**Long-only Sharpe — net**", "long_only_sharpe_net", "**{:.2f}**"),
-    ("Long-only Sharpe, net excess of benchmark", "long_only_excess_sharpe_net", "{:.2f}"),
+    ("**Long-short Sharpe** (Q10-Q1, ann.)", "ls_sharpe", "**{:.2f}**"),
+    ("**Long-only Sharpe** (Q10, ann.)", "long_only_sharpe", "**{:.2f}**"),
+    ("Long-only Sharpe, excess of benchmark", "long_only_excess_sharpe", "{:.2f}"),
     ("Benchmark Sharpe", "benchmark_sharpe", "{:.2f}"),
-    ("Long-short annualised return — gross", "ls_annualised_return", "{:.1%}"),
-    ("**Long-short annualised return — net**", "ls_annualised_return_net", "**{:.1%}**"),
-    ("Long-only annualised return — gross", "long_only_annualised_return", "{:.1%}"),
-    ("**Long-only annualised return — net**", "long_only_annualised_return_net", "**{:.1%}**"),
+    ("Long-short annualised return", "ls_annualised_return", "{:.1%}"),
+    ("Long-only annualised return", "long_only_annualised_return", "{:.1%}"),
     ("Benchmark annualised return", "benchmark_annualised_return", "{:.1%}"),
-    ("Long-short max drawdown — net", "ls_max_drawdown_net", "{:.1%}"),
-    ("Decile monotonicity — gross", "monotonicity", "{:.3f}"),
-    ("Decile monotonicity — net", "monotonicity_net", "{:.3f}"),
+    ("Decile monotonicity (Spearman)", "monotonicity", "{:.3f}"),
+    ("Top-decile daily turnover", "top_decile_turnover", "{:.1%}"),
+]
+
+#: Echoed after the table so the transaction-cost paragraph is written from
+#: the run's own numbers rather than transcribed by hand.
+NET_ROWS = [
+    ("Daily cost drag (bps)", "top_decile_daily_cost_bps", "{:.1f}"),
+    ("Long-short Sharpe, net", "ls_sharpe_net", "{:.2f}"),
+    ("Long-short annualised, net", "ls_annualised_return_net", "{:.1%}"),
+    ("Long-only Sharpe, net", "long_only_sharpe_net", "{:.2f}"),
+    ("Long-only annualised, net", "long_only_annualised_return_net", "{:.1%}"),
+    ("Long-only excess Sharpe, net", "long_only_excess_sharpe_net", "{:.2f}"),
+    ("Decile monotonicity, net", "monotonicity_net", "{:.3f}"),
 ]
 
 
@@ -97,7 +104,17 @@ def main() -> int:
     parser.add_argument("--readme", default=str(REPO_ROOT / "README.md"))
     args = parser.parse_args()
 
-    table = render(pd.read_csv(args.metrics))
+    metrics = pd.read_csv(args.metrics)
+    table = render(metrics)
+
+    test = metrics[metrics["window"] == "test"]
+    if not test.empty:
+        row = test.iloc[0]
+        print("Net-of-cost figures (for the transaction-cost paragraph):")
+        for label, key, fmt in NET_ROWS:
+            value = row.get(key)
+            print(f"  {label:30s} {'n/a' if pd.isna(value) else fmt.format(value)}")
+        print()
     readme = Path(args.readme)
     text = readme.read_text(encoding="utf-8")
 

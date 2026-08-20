@@ -37,9 +37,7 @@ def test_every_figure_renders(tmp_path):
 
     paths = [
         plots.plot_factor_summary(report, "factor", tmp_path / "summary.png"),
-        plots.plot_cost_impact(report, "factor", tmp_path / "cost.png"),
-        plots.plot_decile_bar(report["quantile_returns"], "factor", tmp_path / "bar.png",
-                              net_quantiles=report["net_quantile_returns"]),
+        plots.plot_decile_bar(report["quantile_returns"], "factor", tmp_path / "bar.png"),
         plots.plot_ic_series(report["ic_series"], "factor", tmp_path / "ic.png"),
     ]
     for path in paths:
@@ -74,11 +72,12 @@ def test_decile_curves_are_additive_not_compounded():
     assert not np.isclose(plotted_end, compounded, rtol=1e-9)
 
 
-def test_decile_bar_renders_without_a_net_series(tmp_path):
-    """The gross-only path must still work when costs were not computed."""
+def test_decile_bar_can_overlay_the_net_series(tmp_path):
+    """The optional net overlay still works, even though runs don't use it."""
     report = evaluate(_panel(), "factor")
     path = plots.plot_decile_bar(report["quantile_returns"], "factor",
-                                 tmp_path / "bar_gross.png", net_quantiles=None)
+                                 tmp_path / "bar_net.png",
+                                 net_quantiles=report["net_quantile_returns"])
     assert _is_real_png(path)
 
 
