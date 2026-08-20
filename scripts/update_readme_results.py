@@ -27,11 +27,18 @@ ROWS = [
     ("IC t-stat", "ic_t_stat", "{:.1f}"),
     ("Top decile, mean daily return", "top_decile_mean", "{:.4%}"),
     ("Bottom decile, mean daily return", "bottom_decile_mean", "{:.4%}"),
-    ("Long-short Sharpe (annualised)", "ls_sharpe", "{:.2f}"),
-    ("Long-short cumulative return", "ls_cumulative_return", "{:.1%}"),
+    ("Benchmark (equal-weighted), mean daily", "benchmark_daily_mean", "{:.4%}"),
+    ("**Long-short Sharpe** (Q10-Q1, ann.)", "ls_sharpe", "**{:.2f}**"),
+    ("**Long-only Sharpe** (Q10, ann.)", "long_only_sharpe", "**{:.2f}**"),
+    ("Long-only Sharpe, excess of benchmark", "long_only_excess_sharpe", "{:.2f}"),
+    ("Benchmark Sharpe (ann.)", "benchmark_sharpe", "{:.2f}"),
+    ("Long-short cumulative (additive)", "ls_cumulative_return", "{:.1%}"),
+    ("Long-short max drawdown", "ls_max_drawdown", "{:.1%}"),
+    ("Long-only cumulative (additive)", "long_only_cumulative_return", "{:.1%}"),
     ("Decile monotonicity (Spearman)", "monotonicity", "{:.3f}"),
     ("Top-decile daily turnover", "top_decile_turnover", "{:.1%}"),
 ]
+
 
 
 RETURN_LABELS = {

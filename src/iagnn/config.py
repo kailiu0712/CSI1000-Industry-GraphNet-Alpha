@@ -106,6 +106,9 @@ class DataConfig:
     )
     #: Universe filter: keep rows whose index weight in this column is > 0.
     universe_weight_col: str = "IndexW1000"
+    #: Barra style/industry exposures, for the attribution figure. Not part
+    #: of this repository; None disables that one plot and nothing else.
+    barra_exposure_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,9 @@ class PipelineConfig:
     #: in every metrics table.
     factor_name: str = "GNN_IC4Net"
     output_dir: Path = REPO_ROOT / "artifacts"
+    #: Figures land here rather than in `output_dir`, because they are the
+    #: one run output meant to be committed and shown in the README.
+    figure_dir: Path = REPO_ROOT / "docs" / "figures"
 
     @property
     def n_features(self) -> int:

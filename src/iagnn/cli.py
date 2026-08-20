@@ -48,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--device", default=None)
     run_cmd.add_argument("--no-framework-output", action="store_true",
                          help="Skip writing Factors_<name>_*.parquet into the framework tree.")
+    run_cmd.add_argument("--figure-dir", default=None, help="Where the PNG figures go.")
+    run_cmd.add_argument("--barra-dir", default=None,
+                         help="Barra exposure parquet directory, for the attribution figure.")
+    run_cmd.add_argument("--no-figures", action="store_true", help="Skip figure generation.")
     _add_window_args(run_cmd)
 
     eval_cmd = sub.add_parser("evaluate", help="Re-score metrics from a saved predictions file.")
@@ -83,6 +87,10 @@ def _config_from_args(args) -> "object":
         cfg = cfg.with_(train=replace(cfg.train, device=args.device))
     if args.k_neighbors is not None:
         cfg = cfg.with_(graph=replace(cfg.graph, k_neighbors=args.k_neighbors))
+    if getattr(args, "figure_dir", None):
+        cfg = cfg.with_(figure_dir=Path(args.figure_dir))
+    if getattr(args, "barra_dir", None):
+        cfg = cfg.with_(data=replace(cfg.data, barra_exposure_dir=Path(args.barra_dir)))
     return cfg
 
 
@@ -114,7 +122,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         from .pipeline import run as run_pipeline
         cfg = _config_from_args(args)
-        run_pipeline(cfg, write_framework_output=not args.no_framework_output)
+        run_pipeline(
+            cfg,
+            write_framework_output=not args.no_framework_output,
+            make_figures=not args.no_figures,
+        )
         print(f"\nArtifacts written to {cfg.output_dir}")
         return 0
 

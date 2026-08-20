@@ -68,3 +68,51 @@ def test_evaluate_returns_a_complete_report():
         assert key in report["metrics"]
     assert not report["ic_series"].empty
     assert not report["quantile_returns"].empty
+
+
+def test_benchmark_is_the_equal_weighted_universe():
+    from iagnn.evaluate import benchmark_returns
+
+    panel = _panel(signal=1.0, n_dates=5, n_stocks=50)
+    bm = benchmark_returns(panel, return_col="next_return")
+    expected = panel.groupby("TradingDay")["next_return"].mean()
+    pd.testing.assert_series_equal(bm, expected, check_names=False)
+
+
+def test_long_only_sharpe_is_reported_raw_and_in_excess():
+    metrics = evaluate(_panel(signal=1.0), "factor")["metrics"]
+    for key in ("long_only_sharpe", "long_only_excess_sharpe",
+                "benchmark_sharpe", "ls_sharpe", "ls_max_drawdown"):
+        assert key in metrics and not np.isnan(metrics[key])
+
+
+def test_long_only_excess_strips_the_market_move():
+    """A useless factor in a rising market: long-only Sharpe is positive on
+    the market alone, but the excess Sharpe must not be."""
+    rng = np.random.default_rng(7)
+    frames = []
+    for date in pd.bdate_range("2023-01-02", periods=60):
+        drift = 0.01  # every stock up 1% that day, plus noise
+        frames.append(pd.DataFrame({
+            "TradingDay": date,
+            "SecuCode": [f"{i:06d}" for i in range(200)],
+            "factor": rng.normal(size=200),          # pure noise, no signal
+            "next_return": drift + rng.normal(scale=0.01, size=200),
+        }))
+    metrics = evaluate(pd.concat(frames, ignore_index=True), "factor")["metrics"]
+
+    assert metrics["long_only_sharpe"] > 1.0, "market drift alone should lift the raw figure"
+    assert abs(metrics["long_only_excess_sharpe"]) < 1.0, "excess must not inherit the drift"
+
+
+def test_additive_and_compounded_cumulatives_are_both_reported():
+    metrics = evaluate(_panel(signal=1.0), "factor")["metrics"]
+    assert "ls_cumulative_return" in metrics
+    assert "ls_cumulative_return_compounded" in metrics
+
+
+def test_max_drawdown_is_zero_for_a_monotonically_rising_curve():
+    from iagnn.evaluate import _max_drawdown_additive
+
+    assert _max_drawdown_additive(pd.Series([0.01] * 20)) == 0.0
+    assert _max_drawdown_additive(pd.Series([0.1, -0.3, 0.05])) < 0

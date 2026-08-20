@@ -1,23 +1,37 @@
 """Out-of-sample factor evaluation.
 
-Deliberately the same metric definitions the research framework's own
+Deliberately the same metric definitions the parent research framework's
 single-factor test uses, so a number produced here can be compared directly
-against the framework's reports rather than only against itself:
+against that project's reports rather than only against itself. In
+particular the annualisation factor is 252 and cumulative returns are
+**additive** (`cumsum`, not `cumprod`) — that is what the framework's plots
+show, and mixing the two conventions is the easiest way to produce two
+"cumulative returns" that disagree by an order of magnitude.
 
-* **RankIC** -- daily Spearman correlation between the factor and the
-  forward return. Rank-based, because a factor is used to *order* stocks;
-  a few extreme values should not decide the score.
-* **ICIR** -- mean RankIC divided by its standard deviation. The stability
-  of the edge, not just its size.
-* **decile / quantile returns** -- equal-weighted next-day return per factor
-  bucket, which is the closest thing to what a trading rule would earn.
-* **turnover** -- fraction of the long bucket replaced day over day, the
+* **RankIC** — daily Spearman correlation between the factor and the forward
+  return. Rank-based, because a factor is used to *order* stocks; a few
+  extreme values should not decide the score.
+* **ICIR** — mean RankIC divided by its standard deviation. The stability of
+  the edge, not just its size.
+* **decile returns** — equal-weighted forward return per factor bucket,
+  which is the closest thing to what a trading rule would earn.
+* **long-short Sharpe** — top decile minus bottom decile. Market-neutral by
+  construction, so it isolates the factor.
+* **long-only Sharpe** — the top decile held outright. Reported both raw and
+  in excess of the equal-weighted universe, because the raw number is mostly
+  market beta: in a rising market a useless factor still posts a positive
+  long-only Sharpe. The excess figure is the one that says whether the factor
+  added anything.
+* **turnover** — fraction of the long bucket replaced day over day, the
   first-order check on whether the spread survives costs.
 """
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+
+TRADING_DAYS_PER_YEAR = 252
+IC_ROLLING_WINDOW = 20
 
 
 def daily_rank_ic(
@@ -89,25 +103,77 @@ def quantile_returns(
     return out
 
 
-def long_short_summary(quantiles: pd.DataFrame, periods_per_year: int = 244) -> dict[str, float]:
-    """Top-minus-bottom bucket statistics, annualised."""
+def benchmark_returns(
+    df: pd.DataFrame, return_col: str = "next_return", date_col: str = "TradingDay"
+) -> pd.Series:
+    """Equal-weighted mean forward return per date — the universe itself.
+
+    This is the benchmark a long-only bucket has to beat. Without it, a
+    long-only Sharpe is mostly a statement about the market, not the factor.
+    """
+    return df.groupby(date_col, sort=True)[return_col].mean().dropna()
+
+
+def _sharpe(series: pd.Series, periods_per_year: int = TRADING_DAYS_PER_YEAR) -> float:
+    std = series.std(ddof=1)
+    if series.empty or not np.isfinite(std) or std == 0:
+        return np.nan
+    return float(series.mean() / std * np.sqrt(periods_per_year))
+
+
+def _max_drawdown_additive(series: pd.Series) -> float:
+    """Deepest peak-to-trough fall of the additive cumulative curve."""
+    if series.empty:
+        return np.nan
+    curve = series.fillna(0).cumsum()
+    return float((curve - curve.cummax()).min())
+
+
+def long_short_summary(
+    quantiles: pd.DataFrame,
+    benchmark: pd.Series | None = None,
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
+) -> dict[str, float]:
+    """Bucket-portfolio statistics: long-short, long-only, and benchmark.
+
+    Cumulative figures are additive (`cumsum`) to match the parent
+    framework's plots; `*_compounded` is provided alongside for the few
+    places where geometric linking is the right question.
+    """
     if quantiles.empty:
         return {}
     top, bottom = quantiles.columns[-1], quantiles.columns[0]
-    spread = quantiles[top] - quantiles[bottom]
-    mean, std = float(spread.mean()), float(spread.std())
-    cumulative = float((1 + spread).prod() - 1)
-    return {
-        "ls_daily_mean": mean,
-        "ls_daily_std": std,
-        "ls_sharpe": mean / std * np.sqrt(periods_per_year) if std else np.nan,
-        "ls_cumulative_return": cumulative,
-        "ls_annualised_return": (1 + cumulative) ** (periods_per_year / len(spread)) - 1,
+    spread = (quantiles[top] - quantiles[bottom]).dropna()
+    long_only = quantiles[top].dropna()
+
+    out = {
+        "ls_daily_mean": float(spread.mean()),
+        "ls_daily_std": float(spread.std(ddof=1)),
+        "ls_sharpe": _sharpe(spread, periods_per_year),
+        "ls_cumulative_return": float(spread.sum()),
+        "ls_cumulative_return_compounded": float((1 + spread).prod() - 1),
+        "ls_max_drawdown": _max_drawdown_additive(spread),
+        "long_only_daily_mean": float(long_only.mean()),
+        "long_only_sharpe": _sharpe(long_only, periods_per_year),
+        "long_only_cumulative_return": float(long_only.sum()),
         "top_decile_mean": float(quantiles[top].mean()),
         "bottom_decile_mean": float(quantiles[bottom].mean()),
         "monotonicity": float(pd.Series(quantiles.mean().to_numpy()).rank().corr(
             pd.Series(np.arange(quantiles.shape[1]) + 1.0))),
     }
+
+    if benchmark is not None and not benchmark.empty:
+        bm = benchmark.reindex(long_only.index).dropna()
+        excess = (long_only - bm).dropna()
+        out.update({
+            "benchmark_daily_mean": float(bm.mean()),
+            "benchmark_sharpe": _sharpe(bm, periods_per_year),
+            "benchmark_cumulative_return": float(bm.sum()),
+            "long_only_excess_daily_mean": float(excess.mean()),
+            "long_only_excess_sharpe": _sharpe(excess, periods_per_year),
+            "long_only_excess_cumulative_return": float(excess.sum()),
+        })
+    return out
 
 
 def turnover(
@@ -141,19 +207,34 @@ def evaluate(
     n_quantiles: int = 10,
     return_col: str = "next_return",
 ) -> dict[str, object]:
-    """Full report for one factor over one window."""
+    """Full report for one factor over one window.
+
+    Returns the metrics plus the series the plots are drawn from, so a caller
+    never has to recompute them: the daily IC, the per-date decile returns,
+    the quintile returns the framework-style curves use, and the
+    equal-weighted benchmark.
+    """
     ic = daily_rank_ic(df, factor_col, return_col=return_col)
     quantiles = quantile_returns(df, factor_col, n_quantiles=n_quantiles, return_col=return_col)
+    quintiles = quantile_returns(df, factor_col, n_quantiles=5, return_col=return_col)
+    benchmark = benchmark_returns(df, return_col=return_col)
+
     metrics = {
         "factor": factor_col,
         "start": str(df["TradingDay"].min().date()) if len(df) else None,
         "end": str(df["TradingDay"].max().date()) if len(df) else None,
         "n_rows": int(len(df)),
         **ic_summary(ic),
-        **long_short_summary(quantiles),
+        **long_short_summary(quantiles, benchmark),
         "top_decile_turnover": turnover(df, factor_col),
     }
-    return {"metrics": metrics, "ic_series": ic, "quantile_returns": quantiles}
+    return {
+        "metrics": metrics,
+        "ic_series": ic,
+        "quantile_returns": quantiles,
+        "quintile_returns": quintiles,
+        "benchmark": benchmark,
+    }
 
 
 def format_report(metrics: dict[str, object]) -> str:
@@ -175,8 +256,13 @@ def format_report(metrics: dict[str, object]) -> str:
         f"IC t-stat         : {fmt('ic_t_stat', '.2f')}",
         f"Top decile / day  : {fmt('top_decile_mean', '.5f')}",
         f"Bottom decile/day : {fmt('bottom_decile_mean', '.5f')}",
+        f"Benchmark / day   : {fmt('benchmark_daily_mean', '.5f')}",
         f"Long-short Sharpe : {fmt('ls_sharpe', '.2f')}",
-        f"Long-short cum.   : {fmt('ls_cumulative_return', '.2%')}",
+        f"Long-only Sharpe  : {fmt('long_only_sharpe', '.2f')}"
+        f"   (excess of benchmark: {fmt('long_only_excess_sharpe', '.2f')})",
+        f"Benchmark Sharpe  : {fmt('benchmark_sharpe', '.2f')}",
+        f"Long-short cum.   : {fmt('ls_cumulative_return', '.2%')} additive",
+        f"Long-short max DD : {fmt('ls_max_drawdown', '.2%')}",
         f"Decile monotonic. : {fmt('monotonicity', '.3f')}",
         f"Top-decile turnov.: {fmt('top_decile_turnover', '.2%')}",
     ])

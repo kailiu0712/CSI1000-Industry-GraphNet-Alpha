@@ -14,6 +14,11 @@ artifacts/*
 # Data is not distributed with the repo (see README: Data contract).
 *.parquet
 *.pt
+
+# docs/ is the exception: the committed figures and the exposure table the
+# README links to. They are run outputs, but they are also the report.
+!docs/
+!docs/**
 *.ipynb_checkpoints/
 
 .pytest_cache/

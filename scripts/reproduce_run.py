@@ -29,6 +29,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--factor-dir", default=str(FRAMEWORK_ROOT / "factors"))
     parser.add_argument("--feature-panel", default=str(REPO_ROOT / "artifacts" / "feature_panel.parquet"))
     parser.add_argument("--output-dir", default=str(REPO_ROOT / "artifacts"))
+    parser.add_argument("--figure-dir", default=str(REPO_ROOT / "docs" / "figures"))
+    parser.add_argument("--barra-dir",
+                        default=str(FRAMEWORK_ROOT.parent / "data" / "rq_csi1000_barra_exposure"),
+                        help="Barra exposure parquet directory (skipped if absent).")
     parser.add_argument("--factor-name", default="GNN_IC4Net")
     parser.add_argument("--skip-prepare", action="store_true",
                         help="Reuse an existing feature panel instead of rebuilding it.")
@@ -50,12 +54,16 @@ def main() -> int:
             framework_root=args.framework_root,
         )
 
+    from dataclasses import replace
+
     cfg = iagnn.default_config(
         feature_panel_path=panel_path,
         factor_dir=args.factor_dir,
         factor_name=args.factor_name,
         output_dir=Path(args.output_dir),
+        figure_dir=Path(args.figure_dir),
     )
+    cfg = cfg.with_(data=replace(cfg.data, barra_exposure_dir=Path(args.barra_dir)))
     result = iagnn.run(cfg, write_framework_output=not args.no_framework_output)
 
     print("\nArtifacts:")

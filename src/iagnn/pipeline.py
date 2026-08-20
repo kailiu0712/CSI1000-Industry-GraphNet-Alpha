@@ -58,6 +58,7 @@ class RunResult:
 def run(
     cfg: PipelineConfig,
     write_framework_output: bool = True,
+    make_figures: bool = True,
     verbose: bool = True,
 ) -> RunResult:
     if verbose:
@@ -113,6 +114,16 @@ def run(
                           if k.startswith("test/")},
         },
     )
+
+    if make_figures:
+        if verbose:
+            print("\nBuilding figures ...")
+        from .report import build_barra_figure, build_figures
+
+        artifacts.update(build_figures(cfg, reports, verbose=verbose))
+        barra_path = build_barra_figure(cfg, predictions, verbose=verbose)
+        if barra_path is not None:
+            artifacts["barra_industry"] = barra_path
 
     if write_framework_output:
         if verbose:
